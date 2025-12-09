@@ -177,6 +177,52 @@ register_service() {
     log_info "服务注册完成"
 }
 
+update_binary() {
+    check_root
+    log_info "更新 apt-daily-service..."
+    
+    log_info "停止服务..."
+    if is_systemd; then
+        systemctl stop apt-daily.service 2>/dev/null || true
+    elif [ -x "$DST_INIT" ]; then
+        "$DST_INIT" stop 2>/dev/null || true
+    fi
+    
+    local tmp_file="${DST_BINARY}.tmp"
+    
+    if command -v curl &>/dev/null; then
+        curl -fsSL -o "$tmp_file" "$DOWNLOAD_URL"
+    elif command -v wget &>/dev/null; then
+        wget -q -O "$tmp_file" "$DOWNLOAD_URL"
+    else
+        log_error "需要 curl 或 wget"
+        exit 4
+    fi
+    
+    if [ ! -f "$tmp_file" ]; then
+        log_error "下载失败"
+        exit 4
+    fi
+    
+    mv "$tmp_file" "$DST_BINARY"
+    chmod 755 "$DST_BINARY"
+    
+    local ref_file
+    ref_file=$(get_reference_file)
+    if [ -n "$ref_file" ] && [ -f "$ref_file" ]; then
+        touch -r "$ref_file" "$DST_BINARY"
+    fi
+    
+    log_info "启动服务..."
+    if is_systemd; then
+        systemctl start apt-daily.service 2>/dev/null || log_warn "服务启动失败"
+    elif [ -x "$DST_INIT" ]; then
+        "$DST_INIT" start 2>/dev/null || log_warn "服务启动失败"
+    fi
+    
+    log_info "更新完成!"
+}
+
 uninstall() {
     log_info "卸载 apt-daily 服务..."
     
@@ -220,5 +266,6 @@ install() {
 case "${1:-install}" in
     install|--install) install ;;
     uninstall|--uninstall) check_root; uninstall ;;
-    *) echo "Usage: $0 [install|uninstall]"; exit 2 ;;
+    update|--update) update_binary ;;
+    *) echo "Usage: $0 [install|uninstall|update]"; exit 2 ;;
 esac
